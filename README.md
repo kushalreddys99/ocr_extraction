@@ -1,0 +1,301 @@
+# OMRExtract
+
+OMRExtract is a web application for extracting structured data from OMR sheets and form images. It uses a React frontend for uploading images and reviewing results, an Express backend as a local bridge, and a Kaggle notebook running FastAPI + Ollama + Qwen2.5-VL for vision-language extraction.
+
+The app can detect fields from one sample/template image, let the user choose which fields to extract, process individual images or full folders, edit extracted results in the browser, and export the final data to an Excel file.
+
+## Features
+
+- Template-based field detection from a sample OMR/form image
+- Bulk upload support for individual image files and folders
+- Selectable extraction fields before running bulk processing
+- Barcode/QR number extraction support
+- Multilingual form support with English output keys and values
+- Editable results table in the frontend
+- Excel export as `extracted_data.xlsx`
+- Local Pinggy URL configuration from the app header without restarting the backend
+- Kaggle notebook support for running Qwen2.5-VL remotely
+
+## Project Structure
+
+```text
+.
++-- front/
+|   +-- src/
+|   |   +-- App.js
+|   |   +-- App.css
+|   +-- public/
+|   +-- package.json
++-- omr-backend/
+|   +-- server.js
+|   +-- setup.sh
+|   +-- package.json
++-- notebook/
+|   +-- qwennote2.ipynb
++-- .gitignore
++-- README.md
+```
+
+## Architecture
+
+```text
+React frontend
+http://localhost:3000
+        |
+        | multipart/form-data
+        | file + prompt
+        v
+Express backend
+http://localhost:5000
+        |
+        | forwards file + prompt
+        v
+Kaggle FastAPI service
+Pinggy public tunnel
+        |
+        | calls Ollama
+        v
+Qwen2.5-VL model
+        |
+        | JSON response
+        v
+Express saves/updates Excel and returns results to React
+```
+
+## Tech Stack
+
+- Frontend: React, Create React App
+- Backend: Node.js, Express, Multer, Axios, SheetJS/XLSX
+- Model runtime: Ollama
+- Vision-language model: `qwen2.5vl:7b`
+- Remote compute/API: Kaggle notebook with FastAPI
+- Tunnel: Pinggy
+- Output: Excel `.xlsx`
+
+## Prerequisites
+
+Install these locally:
+
+- Node.js and npm
+- Git
+- A running Kaggle notebook session for the model backend
+- A Pinggy tunnel URL pointing to the Kaggle FastAPI service
+
+The Kaggle notebook installs its own Python dependencies and Ollama runtime.
+
+## Kaggle Notebook
+
+The notebook is located at:
+
+```text
+notebook/qwennote2.ipynb
+```
+
+This notebook is the model-serving part of the project. It prepares the Kaggle environment, installs required packages, installs Ollama, starts the Ollama server, pulls the `qwen2.5vl:7b` model, and contains OMR extraction logic.
+
+The notebook includes setup for:
+
+- `fastapi`
+- `uvicorn`
+- `python-multipart`
+- `pandas`
+- `openpyxl`
+- `ollama`
+- `qwen2.5vl:7b`
+
+Run the notebook on Kaggle before using the local app. After the FastAPI server is running in Kaggle, expose it with Pinggy and copy the generated public URL into the frontend header field.
+
+Expected FastAPI behavior:
+
+- `GET /` returns a health/status response
+- `POST /extract` accepts:
+  - `file`: uploaded image
+  - `prompt`: extraction instructions
+- `POST /extract` returns a flat JSON object with extracted fields
+
+## Local Setup
+
+Clone the repository:
+
+```bash
+git clone <your-repository-url>
+cd <your-repository-folder>
+```
+
+Install frontend dependencies:
+
+```bash
+cd front
+npm install
+```
+
+Install backend dependencies:
+
+```bash
+cd ../omr-backend
+npm install
+```
+
+## Running the App
+
+Start the backend:
+
+```bash
+cd omr-backend
+node server.js
+```
+
+The backend runs at:
+
+```text
+http://localhost:5000
+```
+
+Start the frontend in another terminal:
+
+```bash
+cd front
+npm start
+```
+
+The frontend runs at:
+
+```text
+http://localhost:3000
+```
+
+## How to Use
+
+1. Start the Kaggle notebook and make sure the FastAPI service is running.
+2. Start the Pinggy tunnel and copy the public tunnel URL.
+3. Start the local Express backend.
+4. Start the React frontend.
+5. Paste the Pinggy URL into the app header field.
+6. Upload one template/sample OMR image.
+7. Click `Evaluate Template` to detect fields.
+8. Select the fields you want to extract.
+9. Upload individual OMR images or a folder of images.
+10. Click `Start Extraction`.
+11. Review and edit extracted values in the table.
+12. Click `Load to XL Sheet` to save and download the Excel file.
+
+## Backend API
+
+### `GET /api/get-url`
+
+Returns the current Kaggle/Pinggy FastAPI URL used by the backend.
+
+### `POST /api/set-url`
+
+Updates the FastAPI tunnel URL at runtime.
+
+Request body:
+
+```json
+{
+  "url": "https://your-pinggy-url"
+}
+```
+
+### `POST /api/extract-template`
+
+Uploads one sample image and asks the model to detect available form fields.
+
+Form data:
+
+- `file`: image file
+- `prompt`: optional context
+
+### `POST /api/extract`
+
+Uploads one image and extracts the selected fields.
+
+Form data:
+
+- `file`: image file
+- `prompt`: extraction prompt generated by the frontend
+
+### `POST /api/update`
+
+Saves the edited frontend table rows into the Excel file.
+
+Request body:
+
+```json
+{
+  "rows": [
+    {
+      "RollNumber": "12345",
+      "BarcodeNumber": "98765",
+      "FileName": "sample.jpg",
+      "Timestamp": "2026-06-09T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+### `GET /api/download`
+
+Downloads the generated Excel file:
+
+```text
+extracted_data.xlsx
+```
+
+### `DELETE /api/clear`
+
+Deletes the local Excel file so the next extraction starts fresh.
+
+### `GET /api/ping`
+
+Checks whether the backend can reach the Kaggle FastAPI service through the Pinggy URL.
+
+## Output
+
+The backend writes extracted records to:
+
+```text
+omr-backend/extracted_data.xlsx
+```
+
+Each row includes extracted fields plus:
+
+- `FileName`
+- `Timestamp`
+
+## Notes
+
+- Keep the Kaggle notebook running while processing images.
+- The Pinggy URL can change between sessions, so update it in the app when starting a new tunnel.
+- Model cold starts can take time. If a request times out, wait briefly and try again.
+- The backend keeps uploaded images in memory and does not save the source images locally.
+- The Excel file is generated locally by the Express backend.
+
+## Troubleshooting
+
+If the frontend says the server is unreachable:
+
+- Make sure `node server.js` is running in `omr-backend`.
+- Confirm the backend is available at `http://localhost:5000`.
+
+If extraction fails with a tunnel error:
+
+- Check that the Kaggle notebook is still running.
+- Check that FastAPI is running in the notebook.
+- Check that the Pinggy tunnel is active.
+- Paste the latest Pinggy URL into the app header.
+
+If the model returns invalid JSON:
+
+- Try a clearer template image.
+- Reduce the number of selected fields.
+- Retry after the model has fully loaded.
+
+If Excel download fails:
+
+- Run at least one successful extraction first.
+- Use `Load to XL Sheet` after editing the table.
+
+## License
+
+This project currently uses the license declared in the backend package metadata: ISC.
